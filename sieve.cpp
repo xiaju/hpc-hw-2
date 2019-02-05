@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include <pthread.h>
+#include <chrono>
 
 struct input {
   int start;
@@ -33,6 +34,7 @@ int main(int argc, char *argv[]) {
       isPrime[i] = true;
   }
 
+  auto start = std::chrono::system_clock::now();
   for (int i = 2; i * i <= max; i++) {
     if (isPrime[i]) {
       int workerLen = ((max / i) - i) / nthreads;
@@ -51,6 +53,9 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+  std::cout << "elapsed time: " << elapsed.count() << "ms" << std::endl;
 /*
   std::cout << std::endl;
   for (int i = 0; i <= max; i++) {

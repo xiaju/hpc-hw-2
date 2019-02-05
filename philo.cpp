@@ -6,7 +6,8 @@
 int* eatStatus;
 pthread_mutex_t esLock;
 pthread_mutex_t midLock;
-
+bool priorityIsWaiting;
+pthread_mutex_t piwLock;
 
 struct input {
   pthread_mutex_t* l;
@@ -99,10 +100,11 @@ void* forkInMiddle(void* arg) {
   }
   return NULL;
 }
-/*
+
 void* givePriority(void* arg) {
   pthread_mutex_t* first;
   pthread_mutex_t* second;
+  bool shouldIWait = true;
 
   struct input in = *((struct input*)arg);
   if (true) {
@@ -114,7 +116,17 @@ void* givePriority(void* arg) {
   }
 
   while (1) {
+      while(shouldIWait) {
+        pthread_mutex_lock(&piwLock);
+        shouldIWait = priorityIsWaiting;
+        pthread_mutex_unlock(&piwLock);
+      }
       pthread_mutex_lock(first);
+      while(shouldIWait) {
+        pthread_mutex_lock(&piwLock);
+        shouldIWait = priorityIsWaiting;
+        pthread_mutex_unlock(&piwLock);
+      }
       pthread_mutex_lock(second);
       pthread_mutex_lock(&esLock);
       eatStatus[in.id] = true;
@@ -129,24 +141,69 @@ void* givePriority(void* arg) {
   }
   return NULL;
 }
-*/
+
+void* hasPriority(void* arg) {
+  pthread_mutex_t* first;
+  pthread_mutex_t* second;
+
+  struct input in = *((struct input*)arg);
+  if (true) {
+    first = in.r;
+    second = in.l;
+  } else {
+    first = in.l;
+    second = in.r;
+  }
+
+  while (1) {
+      pthread_mutex_lock(&piwLock);
+      priorityIsWaiting = true;
+      pthread_mutex_unlock(&piwLock);
+      pthread_mutex_lock(first);
+      pthread_mutex_lock(second);
+      pthread_mutex_lock(&esLock);
+      eatStatus[in.id] = true;
+      pthread_mutex_unlock(&esLock);
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      pthread_mutex_lock(&esLock);
+      eatStatus[in.id] = false;
+      pthread_mutex_unlock(&esLock);
+      pthread_mutex_unlock(first);
+      pthread_mutex_unlock(second);
+      pthread_mutex_lock(&piwLock);
+      priorityIsWaiting = false;
+      pthread_mutex_unlock(&piwLock);
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  return NULL;
+}
+
+
 int main(int argc, char** argv) {
   int nPhilo = atoi(argv[1]);
-  int prio = atoi(argv[2]);
-  int middle = atoi(argv[3]);
+  int arg = atoi(argv[2]);
   struct input in[nPhilo];
   pthread_mutex_t lock[nPhilo];
   pthread_t threads[nPhilo + 1];
   eatStatus = (int*)malloc(nPhilo * sizeof(int));
   pthread_mutex_init(&esLock, NULL);
-  void* (*whichThread)(void*) = &worker;
+  void* (*whichThread[nPhilo])(void*);
+  for (int j = 0; j < nPhilo; j++) {
+    whichThread[j] = &worker;
+  }
 
-//  if (prio) {
-//    whichThread = givePriority;
-//  } else if (middle) {
-  if (middle) {
+  if (arg == 1) {
+    priorityIsWaiting = true;
+    pthread_mutex_init(&piwLock, NULL);
+    whichThread[0] = &hasPriority;
+    for (int j = 1; j < nPhilo; j++) {
+      whichThread[j] = givePriority;
+    }
+  } else if (arg == 2) {
     pthread_mutex_init(&midLock, NULL);
-    whichThread = forkInMiddle;
+    for (int j = 1; j < nPhilo; j++) {
+      whichThread[j] = forkInMiddle;
+    }
   }
 
   for (int j = 0; j < nPhilo; j++) {
@@ -154,7 +211,7 @@ int main(int argc, char** argv) {
   }
   for (int j = 0; j < nPhilo; j++) {
     in[j] = {&lock[j], &lock[(j + 1) % nPhilo], j};
-    pthread_create(&threads[j], NULL, whichThread, &in[j]);
+    pthread_create(&threads[j], NULL, whichThread[j], &in[j]);
   }
   struct printin pin = {nPhilo};
   pthread_create(threads, NULL, &pworker, &pin);
